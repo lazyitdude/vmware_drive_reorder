@@ -1,0 +1,167 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_guest_disk_info.yml
+
+- name: vmware_vm_guest_disk_info | Gather disk facts for the host
+  community.vmware.vmware_guest_disk_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    validate_certs: "{{ vcenter_certificates }}"
+    datacenter: "{{ __vm_datacenter }}"
+    moid: "{{ __vm_moid }}"
+    folder: "{{ __vm_folder }}"
+    use_instance_uuid: true
+  delegate_to: localhost
+  register: __vm_attached_disk_info
+  throttle: 1
+
+- name: vmware_vm_guest_disk_info | Show debug information
+  ansible.builtin.debug:
+    var: __vm_attached_disk_info
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_guest_disk_info | Look up the VM
+  vmware.vmware_rest.vcenter_vm_info:
+    vcenter_hostname: '{{ vcenter_hostname }}'
+    vcenter_username: '{{ vcenter_username }}'
+    vcenter_password: '{{ vcenter_password }}'
+    vcenter_validate_certs: "{{ vcenter_certificates }}"
+    filter_names:
+      - '{{ role_vmware_guest_find__vm_name }}'
+  delegate_to: localhost
+  register: __search_result
+  throttle: 1
+
+- name: vmware_vm_guest_disk_info | Collect information about a specific VM
+  vmware.vmware_rest.vcenter_vm_info:
+    vcenter_hostname: '{{ vcenter_hostname }}'
+    vcenter_username: '{{ vcenter_username }}'
+    vcenter_password: '{{ vcenter_password }}'
+    vcenter_validate_certs: "{{ vcenter_certificates }}"
+    vm: '{{ __search_result.value[0].vm }}'
+  delegate_to: localhost
+  register: __vm_rest_controller_info
+  throttle: 1
+
+# - name: vmware_vm_guest_disk_info | Retrieve the disk information from the VM
+#   vmware.vmware_rest.vcenter_vm_hardware_disk_info:
+#     vcenter_hostname: '{{ vcenter_hostname }}'
+#     vcenter_username: '{{ vcenter_username }}'
+#     vcenter_password: '{{ vcenter_password }}'
+#     vcenter_validate_certs: "{{ vcenter_certificates }}"
+#     vm: '{{ __vm_rest_info.id }}'
+#   delegate_to: localhost
+#   register: __vmware_rest_disk_info
+
+- name: vmware_vm_guest_disk_info | Show debug information
+  ansible.builtin.debug:
+    var: __vm_rest_controller_info
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_guest_disk_info | Get controller number
+  ansible.builtin.set_fact:
+    __vm_disk_scsi_controller: "{{ __vm_attached_disk_info.guest_disk_info['0'].controller_bus_number }}"
+    __vm_disk_controller_type: "{{ __vm_attached_disk_info.guest_disk_info['0'].controller_type }}"
+    __vm_disk_controller_key: "{{ __vm_attached_disk_info.guest_disk_info['0'].controller_key }}"
+
+- name: vmware_vm_guest_disk_info | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__vm_disk_scsi_controller: .... {{ __vm_disk_scsi_controller }}"
+      - "__vm_disk_controller_type: .... {{ __vm_disk_controller_type }}"
+      - "__vm_disk_controller_key: ..... {{ __vm_disk_controller_key }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_guest_disk_info | Set SCSI controller unique keys
+  ansible.builtin.set_fact:
+    __scsi_controller_unique_keys: >-
+      {{
+        __vm_attached_disk_info.guest_disk_info |
+        dict2items |
+        map(attribute='value.controller_key') |
+        list |
+        unique |
+        sort
+      }}
+    __vm_disk_datastore: "{{ __vm_attached_disk_info.guest_disk_info['0'].backing_datastore }}"
+
+- name: vmware_vm_guest_disk_info | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__scsi_controller_unique_keys: ...... {{ __scsi_controller_unique_keys }}"
+      - "__vm_disk_datastore: ................... {{ __vm_disk_datastore }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_guest_disk_info | Create a list holding all the info we need for each existing controller
+  ansible.builtin.set_fact:
+    __scsi_controllers_info: "{{ __scsi_controllers_info | default([]) + [__current_controller] }}"
+  loop: "{{ __scsi_controller_unique_keys }}"
+  loop_control:
+    loop_var: __controller_key
+    index_var: __controller_number
+  vars:
+    __scsi_controller_devices_query: >-
+      [?to_string(value.controller_key)=='{{ __controller_key }}'].value.unit_number[]
+    __scsi_controller_devices: >-
+      {{
+        __vm_attached_disk_info.guest_disk_info |
+        dict2items |
+        json_query(__scsi_controller_devices_query)
+      }}
+   # Construct object directly as json so that we retain int type for further comparison usage.
+    __current_controller: >-
+      {
+        "__controller_number": {{ __controller_number | int }},
+        "__controller_key": {{ __controller_key | int }},
+        "__number_of_devices": {{ __scsi_controller_devices | length | int }},
+        "__max_unit_number": {{ __scsi_controller_devices | max | int }},
+      }
+
+- name: vmware_vm_guest_disk_info | Start constructing SCSI controller variable
+  block:
+
+    - name: vmware_vm_guest_disk_info | Extract first controller having disks less than "{{ __vm_scsi_max_devices }}"
+      ansible.builtin.set_fact:
+        __vm_scsi_controller: >-
+          {{
+            (
+              __scsi_controllers_info |
+              selectattr('__number_of_devices', '<', __vm_scsi_max_devices) |
+              list
+            ).0
+          }}
+
+  rescue:
+
+    # i.e.controllernumber of our last element in list is equal (or greater for tests) that scsi_max_controller_id
+    - name: vmware_vm_guest_disk_info | Fail if we cannot add an other controller id
+      ansible.builtin.fail:
+        msg: All scsi controllers are full, disk cannot be added.
+      when: __scsi_controllers_info[-1].controller_number >= __vm_scsi_max_controller_id
+
+    - name: vmware_vm_guest_disk_info | Return an empty controller with incremented id
+      ansible.builtin.set_fact:
+        __vm_scsi_controller: >-
+          {
+            "controller_number": {{ __scsi_controllers_info[-1].controller_number + 1 | int }},
+            "controller_key": {{ __scsi_controllers_info[-1].controller_key + 1 | int }},
+            "number_of_devices": 0,
+            "max_unit_number": -1,
+          }
+
+- name: vmware_vm_guest_disk_info | Show debug information (__vm_disk_scsi_controller)
+  ansible.builtin.debug:
+    var: __vm_scsi_controller
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vmware_vm_guest_disk_info | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+
+...

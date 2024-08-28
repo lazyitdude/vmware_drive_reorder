@@ -1,0 +1,26 @@
+---
+# defaults file for role_vmware_guest_find -- main.yml
+
+# search variables
+__vm_found: false
+__vm_name: ''
+__vm_moid: ''
+__vm_uuid: ''
+__vm_datacenter: ''
+__vm_folders: ''
+__vm_cluster: ''
+
+role_vmware_guest_find__debug_mode: false
+role_vmware_guest_find__vm_found: false
+role_vmware_guest_find__hostname: "{{ inventory_hostname }}"
+
+role_vmware_guest_find__cluster: ''
+role_vmware_guest_find__datacenter: ''
+role_vmware_guest_find__folders: ''
+role_vmware_guest_find__guest_name: ''
+role_vmware_guest_find__moid: ''
+role_vmware_guest_find__uuid: ''
+role_vmware_guest_find__vm_name: ''
+
+
+...

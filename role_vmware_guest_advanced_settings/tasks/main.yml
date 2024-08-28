@@ -1,0 +1,167 @@
+---
+# tasks file for role_vmware_guest_advanced_settings
+
+- name: Gather custom attributes of a virtual machine
+  community.vmware.vmware_guest_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    validate_certs: "{{ vcenter_certificates }}"
+    datacenter: "{{ role_vmware_guest_find__datacenter }}"
+    schema: "vsphere"
+    moid: "{{ role_vmware_guest_find__moid }}"
+  register: __vm_guest_info_before
+  delegate_to: localhost
+  throttle: 1
+#  no_log: true
+
+- name: Setup a count varible for counting number of customization found
+  ansible.builtin.set_fact:
+    __customization_found: 0
+    __num_of_inbound_keys: 0
+    __extra_config_value_found_to_add: false
+  delegate_to: localhost
+
+- name: Count the number of customization from job template inbound variables
+  ansible.builtin.set_fact:
+    __num_of_inbound_keys: "{{ role_vmware_guest_advanced_settings__custom_settings | length }}"
+  delegate_to: localhost
+
+- name: Debug custom settings
+  ansible.builtin.set_fact:
+    __customization_found: "{{ __customization_found | int + 1 }}"
+  loop: "{{ role_vmware_guest_advanced_settings__custom_settings }}"
+  when: role_vmware_guest_advanced_settings__custom_settings is defined and
+        item.key in __vm_guest_info_before.instance.config.extraConfig | map(attribute='key') and
+        item.value in __vm_guest_info_before.instance.config.extraConfig | selectattr('key', 'equalto', item.key) | map(attribute='value')
+  delegate_to: localhost
+
+- name: Determine if it needs to be run or not
+  ansible.builtin.set_fact:
+    __extra_config_value_found_to_add: true
+  when: __customization_found | int < __num_of_inbound_keys | int
+  delegate_to: localhost
+
+# - name: Determine if any settings need to be applied
+#   ansible.builtin.set_fact:
+#     __extra_config_value_found: >-
+#       {{
+#         role_vmware_guest_advanced_settings__custom_settings
+#         | selectattr('key', 'in', __vm_guest_info_before.instance.config.extraConfig | map(attribute='key'))
+#         | list
+#         | length < role_vmware_guest_advanced_settings__custom_settings | length
+#       }}
+#   when: role_vmware_guest_advanced_settings__custom_settings is defined
+#   delegate_to: localhost
+
+- name: Add or remove depending on keys and values (Block with Rescue)
+  when: __extra_config_value_found_to_add | bool
+  block:
+
+    - name: Set powerstate of the source VM (default powered-off)
+      community.vmware.vmware_guest_powerstate:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_certificates }}"
+        name: "{{ role_vmware_guest_find__guest_name }}"
+        folder: "{{ role_vmware_guest_find__folders }}"
+        state: powered-off
+        force: true
+      register: __vm_powerstate
+      ignore_errors: true
+      delegate_to: localhost
+      throttle: 1
+
+#      no_log: true
+
+    - name: Add virtual machine custom attribute if value is not empty
+      community.vmware.vmware_guest:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_certificates }}"
+        datacenter: "{{ role_vmware_guest_find__datacenter }}"
+        folder: "{{ role_vmware_guest_find__folders }}"
+        name: "{{ role_vmware_guest_find__guest_name }}"
+        state: present
+        advanced_settings: "{{ role_vmware_guest_advanced_settings__custom_settings }}"
+      register: __attributes
+      delegate_to: localhost
+      throttle: 1
+
+    - name: Set powerstate of the source VM (default powered-on)
+      community.vmware.vmware_guest_powerstate:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_certificates }}"
+        name: "{{ role_vmware_guest_find__guest_name }}"
+        folder: "{{ role_vmware_guest_find__folders }}"
+        state: powered-on
+        force: true
+      register: __vm_powerstate
+      ignore_errors: true
+      delegate_to: localhost
+      throttle: 1
+#      no_log: true
+
+    - name: Check SSH connection before continuing
+      ansible.builtin.wait_for:
+        port: 22
+        host: '{{ inventory_hostname }}'
+        search_regex: OpenSSH
+        delay: 10
+        timeout: 900
+      delegate_to: localhost
+
+    - name: Gather again the custom attributes of a virtual machine
+      community.vmware.vmware_guest_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_certificates }}"
+        datacenter: "{{ role_vmware_guest_find__datacenter }}"
+        schema: "vsphere"
+        moid: "{{ role_vmware_guest_find__moid }}"
+      register: __vm_guest_info_after
+      delegate_to: localhost
+      throttle: 1
+#      no_log: true
+
+    - name: Debug custom settings
+      ansible.builtin.debug:
+        msg: "Key: {{ item.key }}, Value: {{ item.value }}"
+      loop: "{{ role_vmware_guest_advanced_settings__custom_settings }}"
+      when: role_vmware_guest_advanced_settings__custom_settings is defined and
+            "item.key in __vm_guest_info_before"
+      delegate_to: localhost
+
+  rescue:
+
+    - name: Set powerstate of the source VM (default powered-on)
+      community.vmware.vmware_guest_powerstate:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_certificates }}"
+        name: "{{ role_vmware_guest_find__guest_name }}"
+        folder: "{{ role_vmware_guest_find__folders }}"
+        state: powered-on
+        force: true
+      register: __vm_powerstate
+      ignore_errors: true
+      delegate_to: localhost
+      throttle: 1
+#      no_log: true
+
+    - name: Check SSH connection before continuing
+      ansible.builtin.wait_for:
+        port: 22
+        host: '{{ inventory_hostname }}'
+        search_regex: OpenSSH
+        delay: 10
+        timeout: 900
+      delegate_to: localhost
+
+...

@@ -1,0 +1,25 @@
+---
+# tasks file for role_lnx_modify_disk - pvcreate_partition.yml
+
+- name: pvcreate_partition | Format partition and extend the volume group
+  ansible.builtin.shell: |
+    pvcreate /dev/{{ __pvcreate_physical_disk }}{{ __pvcreate_partition_number }}
+  register: __pvcreate_results
+#  failed_when: __pvcreate_results.rc not in [0]
+  changed_when: false
+
+- name: pvcreate_partition | Show debug information
+  ansible.builtin.debug:
+    var: __pvcreate_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: pvcreate_partition | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+...

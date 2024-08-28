@@ -1,0 +1,24 @@
+---
+# site.yml for expand_disk
+
+- name: Project expand_disk
+  hosts: all
+  gather_facts: false
+  vars:
+    role_lnx_modify_disk__debug_mode: false
+    role_lnx_modify_disk__secondary_disk_grow_percentage: "10%"
+    role_lnx_modify_disk__root_disk_size_gb_exact_size: 60
+    role_lnx_modify_disk__grow_gb_root_filesystem: 0
+    role_lnx_modify_disk__grow_gb_usr_filesystem: 7
+    role_lnx_modify_disk__grow_gb_var_filesystem: 10
+    role_lnx_modify_disk__grow_gb_tmp_filesystem: 0
+    role_lnx_modify_disk__grow_gb_home_filesystem: 0
+    role_lnx_modify_disk__grow_gb_opt_filesystem: 0
+
+  tasks:
+
+    - name: Grow the disk and volume group
+      ansible.builtin.include_role:
+        name: role_lnx_modify_disk
+
+...

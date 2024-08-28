@@ -1,0 +1,181 @@
+---
+# tasks file for role_lnx_modify_disk
+
+# - name: Check OS is allowed to continue
+#   ansible.builtin.assert:
+#     that:
+#       - not hostvars[inventory_hostname]['config']['guestId'] == 'sles12_64Guest'
+#       - not hostvars[inventory_hostname]['config']['guestId'] == 'sles11_64Guest'
+#     success_msg: "OS version is ok to continue"
+#     fail_msg: "OS version is to old to continue for automation"
+#   delegate_to: localhost
+
+- name: Grab all the facts
+  ansible.builtin.setup:
+
+- name: Get storage facts from host
+  ansible.builtin.include_tasks:
+    file: get_system_facts.yml
+
+- name: Get user survery information for root disk expansion
+  ansible.builtin.include_tasks:
+    file: get_survey_inputs.yml
+
+- name: Setup variables for disk modifications
+  ansible.builtin.include_tasks:
+    file: disk_findings.yml
+
+- name: Get system facts
+  ansible.builtin.include_tasks:
+    file: vmware_vm_guest_facts.yml
+
+- name: Remove snapshots if present
+  ansible.builtin.include_tasks:
+    file: vmware_vm_remove_snapshots.yml
+
+#################################################################################
+### Change disk layout block -- BEGIN                                         ###
+#################################################################################
+
+- name: Change layout (Block)
+  when:
+    - not __layout_is_good | bool
+  block:
+
+    - name: Set up advanced stetings for disk layout configuration
+      ansible.builtin.include_role:
+        name: role_vmware_guest_advanced_settings
+      vars:
+        role_vmware_guest_custom_attributes__advanced_settings: "{{ role_vmware_guest_advanced_settings__custom_settings }}"
+
+    - name: Add extra disk for moves
+      ansible.builtin.include_tasks:
+        file: vmware_vm_add_disk.yml
+      when:
+        - not __empty_disks_available | bool
+        - not __empty_partition_large_enough | bool
+        - __secondary_vg_exists | bool
+        - __primary_vg_other_disk | bool
+
+    - name: Add partition to new disk
+      ansible.builtin.include_tasks:
+        file: empty_disk_partitioning.yml
+      when:
+        - __empty_disks_available | bool
+        - __secondary_vg_exists | bool
+        - not __empty_partitions_no_vg_exist | bool
+        - __primary_vg_other_disk | bool
+      vars:
+        __partition_physical_disk: "{{ __empty_disks.0 }}"
+
+    - name: Create partition
+      ansible.builtin.include_tasks:
+        file: pvcreate_partition.yml
+      when:
+        - __empty_disks_available | bool
+        - __secondary_vg_exists | bool
+        - __primary_vg_other_disk | bool
+        - not __empty_partitions_no_vg_exist | bool
+      vars:
+        __pvcreate_physical_disk: "{{ __empty_disks.0 }}"
+        __pvcreate_partition_number: 1
+
+    - name: Extend secondary volume group (new disk and partition)
+      ansible.builtin.include_tasks:
+        file: vgextend_volume_group.yml
+      when:
+        - __empty_disks_available | bool
+        - __secondary_vg_exists | bool
+        - __primary_vg_other_disk | bool
+        - not __empty_partitions_no_vg_exist | bool
+      vars:
+        __physical_disk: "{{ __empty_disks.0 }}"
+        __partition_number: 1
+        __volume_group: "{{ __secondary_vgs.0 }}"
+
+    - name: Extend secondary volume group (existing disk and partition)
+      ansible.builtin.include_tasks:
+        file: vgextend_volume_group.yml
+      when:
+        - not __empty_disks_available | bool
+        - __secondary_vg_exists | bool
+        - __primary_vg_other_disk | bool
+        - __empty_partitions_no_vg_exist | bool
+      vars:
+        __physical_disk: "{{ __empty_partition_no_vg.0 }}"
+        __partition_number: 1
+        __volume_group: "{{ __secondary_vgs.0 }}"
+
+    - name: Move data, cleanup secondary vg and disk (block)
+      when:
+        - __new_secondary_vg_disk is defined
+        - __new_secondary_vg_disk | length > 0
+        - __primary_vg_other_disk | bool
+      block:
+
+        - name: Move data from primary to another disk to correct the layout
+          ansible.builtin.include_tasks:
+            file: move_secondary_vg_pvs.yml
+          vars:
+            __move_to_disk: "{{ __new_secondary_vg_disk }}"
+            __move_list: "{{ __secondary_vgs_pvs }}"
+
+        - name: Remove the pv from the secondary volume group
+          ansible.builtin.include_tasks:
+            file: remove_secondary_vg_pvs.yml
+          vars:
+            __move_to_disk: "{{ __new_secondary_vg_disk }}"
+            __move_list: "{{ __secondary_vgs_pvs }}"
+            __vg_name: "{{ __secondary_vgs.0 }}"
+
+        - name: Remove formatting on partition and remove the partition from the disk
+          ansible.builtin.include_tasks:
+            file: remove_partition.yml
+          vars:
+            __remove_list: "{{ __secondary_vgs_pvs }}"
+
+        - name: Remove the partitions that were removed
+          ansible.builtin.set_fact:
+            __secondary_vgs_pvs: "{{ __secondary_vgs_pvs | difference(__remove_list) }}"
+          vars:
+            __remove_list: "{{ __secondary_vgs_pvs }}"
+
+#################################################################################
+### Change disk layout block -- END                                           ###
+#################################################################################
+
+#################################################################################
+### Configure Primary Boot Disk and Volume Group -- BEGIN                     ###
+#################################################################################
+
+- name: Start the boot disk expansion based on where root disk should grow or not based on survey questions
+  ansible.builtin.set_fact:
+    __root_calculated_new_disk_size: "{{ __new_root_disk_size | float }}"
+  when: __grow_boot_disk | bool
+
+- name: Adjust boot disk size if pvs are being moved to it
+  ansible.builtin.set_fact:
+    __root_calculated_new_disk_size: "{{ (__root_calculated_new_disk_size | float +
+                                          __primary_vg_pv_size | float) | round | int }}"
+  when: __primary_vg_other_disk | bool
+
+- name: Expand root disk
+  ansible.builtin.include_tasks:
+    file: expand_consolidate_root.yml
+  vars:
+    __root_new_disk_size: "{{ __root_calculated_new_disk_size }}"
+
+- name: Expand logical volumes and resize the filesystems
+  ansible.builtin.include_tasks:
+    file: logical_volume_expansion.yml
+  when: __grow_boot_disk | bool
+
+#################################################################################
+### Configure Primary Boot Disk and Volume Group -- END                       ###
+#################################################################################
+
+- name: The End
+  ansible.builtin.debug:
+    msg: "The End"
+
+...

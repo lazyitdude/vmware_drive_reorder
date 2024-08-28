@@ -1,0 +1,42 @@
+---
+# tasks file for role_lnx_modify_disk - empty_disk_partitioning.yml
+
+- name: empty_disk_partitioning | Join the dev with name of disk
+  ansible.builtin.set_fact:
+    __joined_disk_name: "/dev/{{ __partition_physical_disk }}"
+
+- name: empty_disk_partitioning | Get logical layout information from disk "{{ __partition_physical_disk }}"
+  community.general.parted:
+    device: "{{ __joined_disk_name }}"
+    unit: MB
+  register: __parted_info
+
+- name: empty_disk_partitioning | Show debug information
+  ansible.builtin.debug:
+    var: __parted_info
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: empty_disk_partitioning | Add new partition to disk "{{ __partition_physical_disk }}"
+  community.general.parted:
+    device: "{{ __joined_disk_name }}"
+    number: 1
+    part_end: 100%
+    flags: [lvm]
+    state: present
+  register: __parted_results
+
+- name: empty_disk_partitioning | Show debug information
+  ansible.builtin.debug:
+    var: __parted_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: empty_disk_partitioning | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 15
+...

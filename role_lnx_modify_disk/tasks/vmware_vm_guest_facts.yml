@@ -1,0 +1,30 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_guest_facts.yml
+
+- name: vmware_vm_guest_facts | Find VMware folder where the target host resides on VMware
+  ansible.builtin.include_tasks:
+    file: vmware_vm_find.yml
+
+# - name: vmware_vm_guest_facts | Get VM information
+#   ansible.builtin.include_tasks:
+#     file: vmware_vm_info.yml
+
+- name: vmware_vm_guest_facts | Get VMware VM guest attached disk(s) information
+  ansible.builtin.include_tasks:
+    file: vmware_vm_guest_disk_info.yml
+
+- name: vmware_vm_guest_facts | Get VMware VM guest snapshot information
+  ansible.builtin.include_tasks:
+    file: vmware_vm_snapshots_info.yml
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vmware_vm_guest_facts | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+
+...

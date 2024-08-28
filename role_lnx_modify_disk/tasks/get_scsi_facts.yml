@@ -1,0 +1,51 @@
+---
+# tasks file for role_lnx_modify_disk - get_scsi_facts.yml
+
+- name: get_scsi_facts | Get controller and unit number for disk using lsscsi
+  ansible.builtin.shell: |
+    set -o pipefail
+    lsscsi | grep -vE 'cd|dvd|fd0'
+  changed_when: false
+  register: __lsscsi_output
+
+- name: get_scsi_facts | Display lssci results
+  ansible.builtin.debug:
+    var: __lsscsi_output
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: get_scsi_facts | Parse lsscsi output to a list of lists
+  ansible.builtin.set_fact:
+    __find_scsi_info: >
+      {{ __find_scsi_info | default({}) | combine({
+        scsi_device.split()[-1].split('/')[2]: {
+          'Slot': scsi_device.split()[0].replace('[', '').replace(']', ''),
+          'disk_number': scsi_device.split()[0].replace('[', '').replace(']', '').split(':')[0] | int,
+          'unit_id': scsi_device.split()[0].replace('[', '').replace(']', '').split(':')[1] | int,
+          'target': scsi_device.split()[0].replace('[', '').replace(']', '').split(':')[2] | int,
+          'LUN': scsi_device.split()[0].replace('[', '').replace(']', '').split(':')[3] | int,
+          'type': scsi_device.split()[1],
+          'vendor': scsi_device.split()[2:3],
+          'model': scsi_device.split()[4],
+          'revision': scsi_device.split()[5],
+        }
+      }) }}
+  loop: "{{ __lsscsi_output.stdout_lines }}"
+  loop_control:
+    loop_var: scsi_device
+  when: scsi_device.strip() | length > 0
+
+- name: get_scsi_facts | Display scsi array variable
+  ansible.builtin.debug:
+    var: __find_scsi_info
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: get_scsi_facts | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+...

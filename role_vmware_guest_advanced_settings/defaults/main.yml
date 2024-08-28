@@ -1,0 +1,17 @@
+---
+# defaults file for role_vmware_guest_advanced_settings
+
+role_vmware_guest_advanced_settings__custom_settings: []
+#  - key: disk.EnableUUID
+#    value": "TRUE"
+
+__extra_config_value: ''
+__extra_config_value_found: false
+__extra_config_value_after: ''
+__extra_config_value_found_after: false
+__extra_config_value_before: ''
+__extra_config_value_found_before: false
+__vm_guest_info_after: ''
+__vm_guest_info_before: ''
+
+...

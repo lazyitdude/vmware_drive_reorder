@@ -1,0 +1,37 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_find.yml
+
+- name: vmware_vm_find | Find VMware folder where the target host resides on VMware
+  ansible.builtin.include_role:
+    name: role_vmware_guest_find
+  vars:
+    role_vmware_guest_find__hostname: "{{ hostvars[inventory_hostname]['vmware_guest_name'] }}"
+
+- name: vmware_vm_find | Set variables for VMware datacenter and folder
+  ansible.builtin.set_fact:
+    __vm_datacenter: "{{ role_vmware_guest_find__datacenter }}"
+    __vm_folder: "{{ role_vmware_guest_find__folders }}"
+    __uuid: "{{ role_vmware_guest_find__uuid }}"
+    __moid: "{{ role_vmware_guest_find__moid }}"
+
+- name: vmware_vm_info | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__vm_datacenter: ........................................... {{ __vm_datacenter }}"
+      - "__vm_folder: ............................................... {{ __vm_folder }}"
+      - "__vm_uuid: ................................................. {{ __vm_uuid }}"
+      - "__vm_moid: ................................................. {{ __vm_moid }}"
+      - "role_vmware_guest_advanced_settings__custom_settings: .... {{ role_vmware_guest_advanced_settings__custom_settings }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vmware_vm_find | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+
+...

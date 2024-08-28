@@ -1,0 +1,15 @@
+---
+# from a repository
+- src: https://centerpoint-automation@dev.azure.com/centerpoint-automation/CNP.Automation/_git/role_lnx_modify_disk
+  name: role_lnx_modify_disk
+  scm: git
+
+- src: https://centerpoint-automation@dev.azure.com/centerpoint-automation/CNP.Automation/_git/role_vmware_guest_find
+  name: role_vmware_guest_find
+  scm: git
+
+- src: https://centerpoint-automation@dev.azure.com/centerpoint-automation/CNP.Automation/_git/role_vmware_guest_advanced_settings
+  name: role_vmware_guest_advanced_settings
+  scm: git
+
+...

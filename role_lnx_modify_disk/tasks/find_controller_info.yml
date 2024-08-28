@@ -1,0 +1,85 @@
+---
+# tasks file for role_lnx_modify_disk - find_controller_info.yml
+
+- name: find_controller_info | Show debug information
+  ansible.builtin.debug:
+    var: ansible_devices
+#  when: role_lnx_modify_disk__debug_mode | bool| bool
+
+- name: find_controller_info | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__target_disk: ........ {{ __target_disk }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: find_controller_info | Set the query to create the array
+  ansible.builtin.set_fact:
+    __bcu_query: "[*].value.[backing_uuid,controller_bus_number,unit_number,controller_type]"
+
+- name: find_controller_info | Get the array
+  ansible.builtin.set_fact:
+    __array: "{{ __vm_attached_disk_info.guest_disk_info | dict2items | json_query(__bcu_query) }}"
+
+- name: find_controller_info | Clean up dashes from backing_uuids make all lowercase
+  ansible.builtin.set_fact:
+    __cleaned_array: "{{ (__cleaned_array | default([])) + [[(__controllers[0] |
+                                                              replace('-', '') |
+                                                              lower), __controllers[1], __controllers[2], __controllers[3]]] }}"
+  loop: "{{ __array }}"
+  loop_control:
+    loop_var: __controllers
+
+- name: find_controller_info | Get the serial number of the disk (block)
+  block:
+
+    - name: find_controller_info | Set the query to extract serial number of the device
+      ansible.builtin.set_fact:
+        __query_for_target_disk: "[?key=='{{ __target_disk }}'].link.ids[0]"
+
+    - name: find_controller_info | Show debug information
+      ansible.builtin.debug:
+        msg:
+          - "__query_for_target_disk: ........ {{ __query_for_target_disk }}"
+#      when: role_lnx_modify_disk__debug_mode | bool
+
+    - name: find_controller_info | Get the unique_id
+      ansible.builtin.set_fact:
+        __unique_uuid: "{{ ansible_devices |
+                           dict2items |
+                           json_query(__query_for_target_disk) |
+                           join('') |
+                           lower }}"
+
+    - name: find_controller_info | Show debug information
+      ansible.builtin.debug:
+        msg:
+          - "__unique_uuid: ........ {{ __unique_uuid }}"
+#      when: role_lnx_modify_disk__debug_mode | bool
+
+- name: find_controller_info | Set the unit_number and the controller_bus_number
+  ansible.builtin.set_fact:
+    __found_controller_bus_number: "{{ __controllers[1] }}"
+    __found_unit_number: "{{ __controllers[2] }}"
+    __found_controller_type: "{{ __controllers[3] }}"
+  loop: "{{ __cleaned_array }}"
+  loop_control:
+    loop_var: __controllers
+  when: __unique_uuid in __controllers[0]
+
+- name: find_controller_info | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__found_controller_bus_number: ........ {{ __found_controller_bus_number }}"
+      - "__found_controller_type: .............. {{ __found_controller_type }}"
+      - "__found_unit_number: .................. {{ __found_unit_number }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: find_controller_info | Prevent something bad from happening
+  ansible.builtin.set_fact:
+    __vm_controller_and_unit_found: true
+  when:
+    - __found_controller_bus_number | length > 0
+    - __found_unit_number | length > 0
+    - __found_controller_type | length > 0
+
+...

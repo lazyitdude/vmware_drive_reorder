@@ -1,0 +1,38 @@
+---
+# tasks file for role_lnx_modify_disk - remove_partition.yml
+
+- name: remove_partition | Move the physical volumes away from primary volume group
+  ansible.builtin.command: pvremove {{ item }}
+  loop: "{{ __remove_list }}"
+  register: __pvremove_results
+  changed_when: true
+
+- name: remove_partition | Show debug information
+  ansible.builtin.debug:
+    var: __pvremove_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: remove_partition | Remove partition
+  community.general.parted:
+    device: "/dev/{{ item.split('/')[2][:3] }}"
+    number: "{{ item.split('/')[2][3:] }}"
+    state: absent
+  loop: "{{ __remove_list }}"
+  register: __parted_results
+
+- name: remove_partition | Show debug information
+  ansible.builtin.debug:
+    var: __parted_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: remove_partition | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 10
+
+...

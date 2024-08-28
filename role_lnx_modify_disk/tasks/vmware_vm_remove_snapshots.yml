@@ -1,0 +1,33 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_remove_snapshots.yml
+
+- name: vmware_vm_remove_snapshots | Remove snapshots if removing is allowed
+  community.vmware.vmware_guest_snapshot:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    validate_certs: "{{ vcenter_certificates }}"
+    datacenter: "{{ __vm_datacenter }}"
+    uuid: "{{ hostvars[inventory_hostname]['config.uuid'] }}"
+    state: "{{ __vm_guest_snapshot_state }}"
+  when: __vm_snapshot_count | int > 0
+  register: __vm_remove_snapshots_results
+  delegate_to: localhost
+  throttle: 1
+
+- name: vmware_vm_remove_snapshots | Print remove snapshots results
+  ansible.builtin.debug:
+    var: __vm_remove_snapshots_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vmware_vm_remove_snapshots | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 10
+
+...

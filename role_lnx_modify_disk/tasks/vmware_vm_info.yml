@@ -1,0 +1,12 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_info.yml
+
+- name: vmware_vm_info | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__vm_uuid: ................................................ {{ __vm_uuid }}"
+      - "__vm_moid: ................................................ {{ __vm_moid }}"
+      - "ole_vmware_guest_custom_attributes__advanced_settings: .... {{ ole_vmware_guest_custom_attributes__advanced_settings }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+...

@@ -1,0 +1,65 @@
+---
+# tasks file for role_lnx_modify_disk - get_empty_partitions.yml
+
+- name: get_empty_partitions | Get empty partitions and their sizes
+  ansible.builtin.set_fact:
+    __empty_partitions: >
+      {{ __empty_partitions | default([]) |
+         combine({ item.key:
+                 { 'size_g': item.value.size_g,
+                   'free_g': item.value.free_g } }) }}
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: item.value.free_g == item.value.size_g
+
+- name: get_empty_partitions | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__empty_partitions: .... {{ __empty_partitions }}"
+  when: __empty_partitions | length > 0
+
+- name: get_empty_partitions | Set true if empty partitions exists
+  ansible.builtin.set_fact:
+    __empty_partitions_on_empty_disks_exist: true
+  when: __empty_partitions | length > 0
+
+- name: get_empty_partitions | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__empty_partitions_on_empty_disks_exist: .... {{ __empty_partitions_on_empty_disks_exist }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: get_empty_partitions | Get empty partition not in volume group
+  ansible.builtin.set_fact:
+    __empty_partition_no_vg: "{{ __empty_partition_no_vg | default([]) + [item.key | string] }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: item.value.free_g == item.value.size_g and
+        not item.value.vg | length > 0 and
+        item.key[-1] | int == 1
+
+- name: get_empty_partitions | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__empty_partition_no_vg: .... {{ __empty_partition_no_vg }}"
+  when: __empty_partition_no_vg | length > 0
+
+- name: get_empty_partitions | Set true if empty partitions exists
+  ansible.builtin.set_fact:
+    __empty_partitions_no_vg_exist: true
+  when: __empty_partition_no_vg | length > 0
+
+- name: get_empty_partitions | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__empty_partitions_no_vg_exist: .... {{ __empty_partitions_no_vg_exist }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: get_empty_partitions | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+...

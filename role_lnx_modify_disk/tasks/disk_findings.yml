@@ -1,0 +1,379 @@
+---
+# tasks file for role_lnx_modify_disk - disk_findings.yml
+
+#################################################################################
+### Get information about the boot disk (block)
+#################################################################################
+# - name: disk_findings | Get the number of disk controllers on the box
+#   ansible.builtin.shell: |
+#     set -o pipefail
+#     lspci | grep -Eci 'SATA controller|RAID controller|NVMe controller|PVSCSI SCSI Controller'
+#   register: __number_of_disk_controllers
+#   changed_when: false
+
+- name: disk_findings | Get the number of different types of controllers
+  ansible.builtin.set_fact:
+    __number_of_disk_controllers: >-
+      {{
+        ansible_facts.devices
+        | dict2items
+        | selectattr('value.host', 'search', 'SATA Controller|RAID Controller|NVMe Controller|PVSCSI SCSI Controller')
+        | list
+        | length
+      }}
+  changed_when: false
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    var: __number_of_disk_controllers
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    var: ansible_mounts
+
+- name: disk_findings | Get boot disk and devices
+  ansible.builtin.set_fact:
+    __boot_full_disk_device: "{{ item.device }}"
+    __boot_partitioned_disk_device: "{{ item.device.split('/')[-1] }}"
+    __boot_long_disk_device: "{{ item.device | regex_replace('[0-9]+$', '') }}"
+    __boot_short_disk_device: "{{ item.device.split('/')[-1] | regex_replace('[0-9]+$', '') }}"
+  loop: "{{ ansible_mounts }}"
+  when: item.mount == '/boot' or item.mount == '/boot/efi'
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__boot_full_disk_device: ............ {{ __boot_full_disk_device }}"
+      - "__boot_partitioned_disk_device: ..... {{ __boot_partitioned_disk_device }}"
+      - "__boot_long_disk_device: ............ {{ __boot_long_disk_device }}"
+      - "__boot_short_disk_device: ........... {{ __boot_short_disk_device }}"
+
+- name: disk_findings | Get boot disk full size for expansion if needed
+  ansible.builtin.set_fact:
+    __boot_disk_full_size: "{{ ansible_devices[__boot_short_disk_device].size |
+                               regex_replace('GB', '') |
+                               trim }}"
+
+- name: disk_findings | Get boot disk full size for expansion if needed
+  ansible.builtin.set_fact:
+    __boot_disk_full_size: >
+      {% set size_str = ansible_devices[__boot_short_disk_device].size %}
+      {% set size_value = size_str[:-2] | float %}
+      {% set unit = size_str[-2:] %}
+      {% if unit == 'TB' %}
+        {{ size_value * 1024 * 1024 * 1024 }}
+      {% elif unit == 'GB' %}
+        {{ size_value }}
+      {% elif unit == 'MB' %}
+        {{ size_value / 1024 }}
+      {% else %}
+        0
+      {% endif %}
+    __boot_disk_new_size_inbound: "{{ __new_root_disk_size | float * 1024.0 * 1024.0 }}"
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__boot_disk_full_size: ............. {{ __boot_disk_full_size }}"
+      - "__boot_disk_new_size_inbound: ...... {{ __boot_disk_new_size_inbound }}"
+
+- name: disk_findings | Exist disk is larger then requested disk size
+  ansible.builtin.assert:
+    that: __boot_disk_full_size | int <= __boot_disk_new_size_inbound | int
+    fail_msg: >
+      The existing OS disk on this system is {{ ansible_devices[__boot_short_disk_device].size }}
+
+      The requested size is {{ __new_root_disk_size }} GB, so the disk would have to be
+      reduced in size, so do a lsblk on the host {{ inventory_hostname }} and see if the disk has a odd layout because to go further will become disasterous
+
+      If the disk size request smaller then a ton smaller go remediate it manually, if the existing
+      disk is 70GB and you're requesting 60GB then make the request for 80-90GB. Anything in the
+      TB size for root disk is unacceptable.
+    success_msg: "Good to continue"
+
+- name: disk_findings | Determine to grow primary disk based on user survey questions
+  ansible.builtin.set_fact:
+    __grow_boot_disk: true
+  when: __new_root_disk_size | int > __boot_disk_full_size | int
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__boot_disk_full_size: ............ {{ __boot_disk_full_size }}"
+      - "__grow_boot_disk: ................. {{ __grow_boot_disk }}"
+
+#################################################################################
+### End of Block (boot disk)
+#################################################################################
+
+#################################################################################
+# Grab information about the primary volume group of the host (block of code)
+#################################################################################
+
+- name: disk_findings | Get main volume group
+  ansible.builtin.set_fact:
+    __primary_vg_device: "{{ item.device }}"
+    __preliminary_vg_name: "{{ item.device.split('/')[-1] }}"
+  loop: "{{ ansible_mounts }}"
+  when: item.mount == '/'
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_device: ...... {{ __primary_vg_device }}"
+      - "__preliminary_vg_name: .... {{ __preliminary_vg_name }}"
+
+- name: disk_findings | Get primary volume group
+  ansible.builtin.set_fact:
+    __primary_vg_name: "{{ item.key }}"
+  loop: "{{ ansible_lvm.vgs | dict2items }}"
+  when: item.key in __preliminary_vg_name
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_name: ...... {{ __primary_vg_name }}"
+
+- name: disk_findings | Get partition sizes of primary volume group on primary disk
+  ansible.builtin.set_fact:
+    __primary_vg_pv_size: "{{ (__primary_vg_pv_size | float) + (item.value.size_g | float - item.value.free_g | float) + 1.0 }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: item.key is contains(__boot_long_disk_device | trim) and
+        item.value.vg is contains(__primary_vg_name)
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_pv_size: .... {{ __primary_vg_pv_size }}"
+
+- name: disk_findings | Get partitions of primary volume group on primary disk
+  ansible.builtin.set_fact:
+    __primary_vgs_pvs: "{{ __primary_vgs_pvs | default([]) + [item.key | string] }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: item.key is contains(__boot_long_disk_device | trim) and
+        item.value.vg is contains(__primary_vg_name)
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vgs_pvs: ....... {{ __primary_vgs_pvs }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: disk_findings | Get other partitions of primary volume group on not primary disk
+  ansible.builtin.set_fact:
+    __primary_vg_pv_other_size: "{{ __primary_vg_pv_other_size | float + (item.value.size_g | float - item.value.free_g | float) + 1.0 }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: item.key is not contains(__boot_long_disk_device | trim) and
+        item.value.vg is contains(__primary_vg_name)
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_pv_other_size: .... {{ __primary_vg_pv_other_size }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: disk_findings | Get last partition of the primary volume on the boot disk
+  ansible.builtin.set_fact:
+    __primary_vg_last_part_on_boot_disk: "{{ item }}"
+  loop: "{{ __primary_vgs_pvs }}"
+  when: __boot_long_disk_device in item
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_last_part_on_boot_disk: ....... {{ __primary_vg_last_part_on_boot_disk }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: disk_findings | Bring down last disk partition number in primary vg on boot disk
+  ansible.builtin.set_fact:
+    __primary_vg_last_part_num_on_boot_disk: "{{ __primary_vg_last_part_on_boot_disk | regex_search('\\d+$') }}"
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_last_part_num_on_boot_disk: ....... {{ __primary_vg_last_part_num_on_boot_disk }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: disk_findings | Get other partitions of primary volume group on not primary disk
+  ansible.builtin.set_fact:
+    __primary_vg_other_pvs: "{{ __primary_vg_other_pvs | default([]) + [item.key | string] }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: item.key is not contains(__boot_long_disk_device | trim) and
+        item.value.vg is contains(__primary_vg_name)
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_other_pvs: ....... {{ __primary_vg_other_pvs }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: disk_findings | Boolean for primary volumes exists on other non primary disk
+  ansible.builtin.set_fact:
+    __primary_vg_other_disk: true
+  when: __primary_vg_other_pvs | length > 0
+
+#################################################################################
+# End of Block (primary volume group)
+#################################################################################
+
+#################################################################################
+# Grab information about the secondary volume group of the host on primary
+# vg disk (block of code)
+#################################################################################
+
+- name: disk_findings | Find secondary volume groups on same disk as primary volume group
+  ansible.builtin.set_fact:
+    __secondary_vgs: "{{ __secondary_vgs + [item.value.vg | string] }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when:
+    - item.value.vg not in __primary_vg_name | trim
+    - __boot_short_disk_device in item.key
+#        item.key in __primary_vg_other_pvs and
+#        item.key in __primary_vgs_pvs
+
+- name: disk_findings | Make the secondary volume groups unique
+  ansible.builtin.set_fact:
+    __secondary_vgs: "{{ __secondary_vgs | unique }}"
+  when: __secondary_vgs | length > 1
+
+- name: disk_findings | Is there a secondary volume group on the same disk as the primary volume group
+  ansible.builtin.set_fact:
+    __secondary_vg_exists: true
+  when: __secondary_vgs | length > 0
+
+- name: disk_findings | Get size of secondary volume groups on primary disk with primary volume group
+  ansible.builtin.set_fact:
+    __secondary_vg_pv_size: "{{ __secondary_vg_pv_size | default(0) | float + (item.value.size_g | float - item.value.free_g | float) + 1.0 }}"
+    __secondary_vgs_pvs: "{{ __secondary_vgs_pvs | default([]) + [item.key | string] }}"
+  loop: "{{ ansible_lvm.pvs | dict2items }}"
+  when: __secondary_vg_exists | bool and
+        item.value.vg in __secondary_vgs
+
+- name: disk_findings | Determine if empty partition will hold the secondary volume group
+  ansible.builtin.set_fact:
+    __empty_partition_large_enough: true
+  loop: "{{ __empty_partitions }}"
+  when: item.value.free_g >= __secondary_vg_pv_size
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__secondary_vgs: ..................... {{ __secondary_vgs }}"
+      - "__secondary_vg_exists: ............... {{ __secondary_vg_exists }}"
+      - "__secondary_vg_pv_size: .............. {{ __secondary_vg_pv_size }}"
+      - "__secondary_vgs_pvs: ................. {{ __secondary_vgs_pvs }}"
+      - "__empty_partition_large_enough: ...... {{ __empty_partition_large_enough }}"
+      - "__secondary_disk_grow_percentage: .... {{ __secondary_disk_grow_percentage }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: disk_findings | Determine size for new disk if needed
+  ansible.builtin.set_fact:
+    __secondary_vg_disk_size_needed: "{{ __secondary_vg_pv_size | float *
+                                        __secondary_disk_grow_percentage | float | round(1, 'common') | int }}"
+  when: __secondary_vg_exists | bool
+
+- name: disk_findings | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__secondary_vg_disk_size_needed: ............ {{ __secondary_vg_disk_size_needed }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+#################################################################################
+# End of Block (secondary volume group)
+#################################################################################
+
+#################################################################################
+# Other facts needed
+#################################################################################
+
+- name: disk_findings | Get the list of empty disks
+  ansible.builtin.include_tasks:
+    file: get_empty_disks.yml
+
+- name: disk_findings | Get the list of empty disks
+  ansible.builtin.include_tasks:
+    file: get_empty_partitions.yml
+
+- name: disk_findings | Get scsi facts
+  ansible.builtin.include_tasks:
+    file: get_scsi_facts.yml
+
+- name: disk_findings | Set up values to get the code to skip steps if the disk layout is correct
+  ansible.builtin.set_fact:
+    __layout_is_good: true
+  when:
+    - __primary_vgs_pvs | length == 1
+    - __secondary_vgs_pvs | length > 1
+    - __empty_disks | length == 0
+    - not __primary_vg_other_pvs | length > 0
+
+#################################################################################
+# End of Other facts needed
+#################################################################################
+
+- name: disk_findings | Summarize all calculated facts
+  ansible.builtin.debug:
+    msg:
+      - "--[ BOOT DISK VARIABLES ]---------------------------------------------------------------"
+      - " "
+      - "__boot_full_disk_device: .................... {{ __boot_full_disk_device }}"
+      - "__boot_partitioned_disk_device: ............. {{ __boot_partitioned_disk_device }}"
+      - "__boot_long_disk_device: .................... {{ __boot_long_disk_device }}"
+      - "__boot_short_disk_device: ................... {{ __boot_short_disk_device }}"
+      - "__boot_disk_full_size: ...................... {{ __boot_disk_full_size }}"
+      - " "
+      - "--[ PRIMARY DISK VARIABLES ]------------------------------------------------------------"
+      - "__primary_vg_device: ........................ {{ __primary_vg_device }}"
+      - "__primary_vg_name: .......................... {{ __primary_vg_name }}"
+      - "__primary_vg_pv_size: ....................... {{ __primary_vg_pv_size }}"
+      - "__primary_vgs_pvs: .......................... {{ __primary_vgs_pvs }}"
+      - "__primary_vg_last_part_on_boot_disk: ........ {{ __primary_vg_last_part_on_boot_disk }}"
+      - "__primary_vg_last_part_num_on_boot_disk: .... {{ __primary_vg_last_part_num_on_boot_disk }}"
+      - "__primary_vg_pv_other_size: ................. {{ __primary_vg_pv_other_size }}"
+      - "__primary_vg_other_pvs: ..................... {{ __primary_vg_other_pvs }}"
+      - "__primary_vg_other_disk: .................... {{ __primary_vg_other_disk }}"
+      - " "
+      - "--[ SECONDARY DISK VARIABLES ]----------------------------------------------------------"
+      - "__secondary_vgs: ............................ {{ __secondary_vgs }}"
+      - "__secondary_vg_exists: ...................... {{ __secondary_vg_exists }}"
+      - "__secondary_vg_pv_size: ..................... {{ __secondary_vg_pv_size }}"
+      - "__secondary_vgs_pvs: ........................ {{ __secondary_vgs_pvs }}"
+      - "__secondary_vg_disk_size_needed: ............ {{ __secondary_vg_disk_size_needed }}"
+      - "__secondary_disk_grow_percentage: ........... {{ __secondary_disk_grow_percentage }}"
+      - " "
+      - "--[ OTHER DISK VARIABLES ]--------------------------------------------------------------"
+      - "__empty_partition_large_enough: ............. {{ __empty_partition_large_enough }}"
+      - "__empty_disks: .............................. {{ __empty_disks }}"
+      - "__empty_partitions: ......................... {{ __empty_partitions }}"
+      - "__empty_disks_available: .................... {{ __empty_disks_available }}"
+      - "__empty_partitions_on_empty_disks_exist: .... {{ __empty_partitions_on_empty_disks_exist }}"
+      - "__empty_partition_no_vg: .................... {{ __empty_partition_no_vg }}"
+      - "__empty_partitions_no_vg_exist: ............. {{ __empty_partitions_no_vg_exist }}"
+      - " "
+      - "--[ DETERMINATIONS ]--------------------------------------------------------------"
+      - "__layout_is_good: ........................... {{ __layout_is_good }}"
+      - " "
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+#################################################################################
+# Idempotency Settings
+#################################################################################
+- name: disk_findings | Print variables
+  ansible.builtin.debug:
+    msg:
+      - "__primary_vg_other_disk: .... {{ __primary_vg_other_disk }}"
+      - "__primary_vgs_pvs: .......... {{ __primary_vgs_pvs | length }}"
+      - "__secondary_vgs_pvs: ........ {{ __secondary_vgs_pvs | length }}"
+      - "__empty_disks: .............. {{ __empty_disks | length }}"
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: disk_findings | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 15
+
+...

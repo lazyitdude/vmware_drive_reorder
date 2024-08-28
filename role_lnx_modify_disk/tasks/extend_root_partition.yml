@@ -1,0 +1,113 @@
+---
+# tasks file for role_lnx_modify_disk - extend_root_partition.yml
+
+- name: extend_root_partition | Rescan the SCSI bus
+  ansible.builtin.include_tasks:
+    file: rescan_bus.yml
+
+- name: extend_root_partition | Read device information (always use unit when probing)
+  community.general.parted:
+    device: "{{ __root_disk }}"
+    unit: GB
+  register: __partition_info
+
+- name: extend_root_partition | Set the last partition label the primary disk
+  ansible.builtin.set_fact:
+    __root_disk_last_partition_label: "{{ __partition_info.disk.table }}"
+
+- name: extend_root_partition | Extend an existing partition to fill all available space
+  community.general.parted:
+    device: "{{ __root_disk }}"
+    number: "{{ __primary_vg_last_part_num_on_boot_disk }}"
+    label: "{{ __root_disk_last_partition_label }}"
+    part_end: "100%"
+    resize: true
+    state: present
+  register: __parted_results_el
+  when: ansible_distribution is match('RedHat|OracleLinux')
+
+- name: extend_root_partition | Show debug information
+  ansible.builtin.debug:
+    var: __parted_results_el
+  when: ansible_distribution is match('RedHat|OracleLinux')
+
+- name: extend_root_partition | Extend an existing partition to fill all available space
+  community.general.parted:
+    device: "{{ __root_disk }}"
+    number: "{{ __primary_vg_last_part_num_on_boot_disk }}"
+    label: "{{ __root_disk_last_partition_label }}"
+    part_end: "100%"
+    resize: true
+    state: present
+  register: __parted_results_sles_15_plus
+  when: ansible_distribution is match('SLES') and
+        ansible_distribution_major_version | int >= 15
+
+- name: extend_root_partition | Show debug information
+  ansible.builtin.debug:
+    var: __parted_results_sles_15_plus
+  when: ansible_distribution is match('SLES') and
+        ansible_distribution_major_version | int >= 15
+
+- name: extend_root_partition | Extend an existing partition to fill all available space
+  ansible.builtin.shell: |
+    fdisk {{ __root_disk }}<<EOF
+    d
+    {{ __primary_vg_last_part_num_on_boot_disk }}
+    n
+    p
+    {{ __primary_vg_last_part_num_on_boot_disk }}
+
+
+    n
+    t
+    {{ __primary_vg_last_part_num_on_boot_disk }}
+    8e
+    w
+    EOF
+    partprobe {{ __root_disk }}
+  register: __parted_results_sles
+  changed_when: false
+  # failed_when: __parted_results_sles.rc not in [0, 1]
+  when: ansible_distribution is match('SLES') and
+        (ansible_distribution_major_version | int >= 11 or
+         ansible_distribution_major_version | int <= 12)
+
+- name: extend_root_partition | Show debug information
+  ansible.builtin.debug:
+    var: __parted_results_sles
+  when: ansible_distribution is match('SLES')
+
+- name: extend_root_partition | Resize logical volume
+  ansible.builtin.command: pvresize {{ __root_disk }}{{ __primary_vg_last_part_num_on_boot_disk }}
+  register: __root_pvresize
+  changed_when: false
+
+- name: extend_root_partition | Show debug information
+  ansible.builtin.debug:
+    var: __root_pvresize
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: extend_root_partition | Rescan the LVM physical volumes
+  ansible.builtin.shell: |
+    pvscan
+    lvscan
+    vgscan
+  register: __scan_results
+  changed_when: false
+
+- name: extend_root_partition | Show debug information
+  ansible.builtin.debug:
+    var: __scan_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: extend_root_partition | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 15
+...

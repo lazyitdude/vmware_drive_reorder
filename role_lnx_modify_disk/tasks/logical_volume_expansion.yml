@@ -1,0 +1,29 @@
+---
+# tasks file for role_vmware_grow_vg -- logical_volume_expansion.yml
+
+- name: logical_volume_expansion | Extend logical volume
+  community.general.lvol:
+    vg: "{{ item.vg }}"
+    lv: "{{ item.lv }}"
+    size: "+{{ item.size }}G"
+    resizefs: true
+  loop: "{{ __filesystems_to_grow }}"
+  register: __lvol_expansion
+  when: item.size | int > 0
+
+- name: logical_volume_expansion | Display lvol expansion results
+  ansible.builtin.debug:
+    var: __lvol_expansion
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: logical_volume_expansion | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 10
+
+...

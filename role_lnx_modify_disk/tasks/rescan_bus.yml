@@ -1,0 +1,60 @@
+---
+# tasks file for role_vmware_grow_vg -- rescan_bus.yml
+
+- name: rescan_bus | Check SSH Connection
+  ansible.builtin.wait_for:
+    port: 22
+    host: '{{ inventory_hostname }}'
+    search_regex: OpenSSH
+    delay: 10
+    timeout: 900
+  delegate_to: localhost
+
+- name: rescan_bus | Find the sd* block devices
+  ansible.builtin.find:
+    paths: /sys/block
+    patterns: 'sd*'
+    file_type: link
+  register: __rescan_bus_block_devices
+
+- name: rescan_bus | Display find sd* block devices results
+  ansible.builtin.debug:
+    var: __rescan_bus_block_devices
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: rescan_bus | Scan scsi bus for disk changes
+  ansible.builtin.shell: |
+    echo 1 > {{ item.path }}/device/rescan
+  args:
+    executable: /bin/bash
+  loop: "{{ __rescan_bus_block_devices.files }}"
+  register: __rescan_results
+  changed_when: false
+#  failed_when: __rescan_results not in [0]
+
+- name: rescan_bus | Display device rescan for changes results
+  ansible.builtin.debug:
+    var: __rescan_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: rescan_bus | Run partprobe
+  ansible.builtin.command: "partprobe"
+  register: __partprobe_results
+  changed_when: false
+
+- name: rescan_bus | Display partprobe results
+  ansible.builtin.debug:
+    var: __partprobe_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: rescan_bus | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 10
+
+...

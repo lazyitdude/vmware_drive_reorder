@@ -1,0 +1,7 @@
+---
+collections:
+  - name: centerpoint.general
+  - name: community.general
+  - name: community.vmware
+  - name: vmware.vmware_rest
+...

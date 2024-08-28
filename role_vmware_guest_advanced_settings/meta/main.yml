@@ -1,0 +1,16 @@
+galaxy_info:
+  author: Red Hat Consulting
+  description: >-
+    The role will looks if a advanced settings if present on the VM guest. If
+    not it will add the advanced settings
+  company: Centerpoint Energy
+  role_name: role_vmware_guest_advanced_settings
+  namespace: centerpoint
+  license: Private
+  min_ansible_version: '2.9'
+  platforms:
+    - name: EL
+      versions:
+        - all
+  galaxy_tags: []
+dependencies: []

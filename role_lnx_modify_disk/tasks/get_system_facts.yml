@@ -1,0 +1,12 @@
+---
+# tasks file for role_lnx_modify_disk - get_system_facts.yml
+
+- name: get_system_facts | Gather system facts filtered for storage only
+  ansible.builtin.setup:
+
+- name: get_system_facts | Show debug information
+  ansible.builtin.debug:
+    var: ansible_facts
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+...

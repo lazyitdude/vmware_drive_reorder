@@ -1,0 +1,62 @@
+---
+# tasks file for role_vmware_grow_vg -- vmware_vm_remove_disk.yml
+
+- name: vmware_vm_remove_disk | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__target_disk_to_remove: ........ {{ __target_disk_to_remove }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_remove_disk | Match up VM disk to VMware Controllers
+  ansible.builtin.include_tasks:
+    file: find_controller_info.yml
+  vars:
+    __target_disk: "{{ __target_disk_to_remove }}"
+
+- name: vmware_vm_remove_disk | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__found_controller_bus_number: ........ {{ __found_controller_bus_number }}"
+      - "__found_controller_type: .............. {{ __found_controller_type }}"
+      - "__found_unit_number: .................. {{ __found_unit_number }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_remove_disk | To remove or not to remove (block)
+  when: __vm_controller_and_unit_found | bool
+  block:
+
+    - name: vmware_vm_remove_disk | Remove disk attached to the host
+      community.vmware.vmware_guest_disk:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_certificates }}"
+        datacenter: "{{ __vm_datacenter }}"
+        moid: "{{ __vm_moid }}"
+        folder: "{{ __vm_folder }}"
+        disk:
+          - scsi_controller: "{{ __found_controller_bus_number | int }}"
+            state: absent
+            unit_number: "{{ __found_unit_number | int }}"
+            scsi_type: "{{ __found_controller_type }}"
+            destroy: true
+      register: __vm_remove_disk_results
+      delegate_to: localhost
+      throttle: 1
+
+    - name: vmware_vm_remove_disk | Display vmware_guest_disk results
+      ansible.builtin.debug:
+        var: __vm_remove_disk_results
+#      when: role_lnx_modify_disk__debug_mode | bool
+
+    # Sending this to ESP as configure, with role_esp_record_time__minsaved
+    # set to approximately time a system admin would take to perform this task
+    - name: vmware_vm_remove_disk | Send record time to ESP
+      ansible.builtin.include_role:
+        name: centerpoint.general.role_esp_record_time
+      when: role_esp_record_time__enabled | bool
+      vars:
+        role_esp_record_time__flag: "configure"
+        role_esp_record_time__minsaved: 15
+
+...

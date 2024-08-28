@@ -1,0 +1,38 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_expand_disk.yml
+
+- name: vmware_vm_expand_disk | Expand disk attached to the host
+  community.vmware.vmware_guest_disk:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    validate_certs: "{{ vcenter_certificates }}"
+    datacenter: "{{ __vm_datacenter }}"
+    name: "{{ __vm_name }}"
+    disk:
+      - size_gb: '{{ __vg_disk_size_needed | int }}'
+        type: '{{ __vm_disk_provisioning_type }}'
+        state: present
+        datastore: "{{ __vm_disk_datastore }}"
+        scsi_type: '{{ __vm_disk_controller_type }}'
+        scsi_controller: "{{ __vm_disk_controller_number }}"
+        unit_number: "{{ __vm_disk_controller_unit_number }}"
+  delegate_to: localhost
+  register: __vm_add_disk_results
+  throttle: 1
+
+- name: vmware_vm_expand_disk | Display vmware_guest_disk results
+  ansible.builtin.debug:
+    var: __vm_add_disk_results
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vmware_vm_expand_disk | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 10
+
+...

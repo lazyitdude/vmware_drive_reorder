@@ -1,0 +1,101 @@
+---
+# defaults file for role_lnx_modify_disk
+
+__boot_disk_full_size: 0
+__boot_full_disk_device: ''
+__boot_long_disk_device: ''
+__boot_partitioned_disk_device: ''
+__boot_short_disk_device: ''
+__empty_disks_available: false
+__empty_disks: []
+__empty_partition_large_enough: false
+__empty_partition_no_vg: []
+__empty_partitions_no_vg_exist: false
+__empty_partitions_on_empty_disks_exist: false
+__empty_partitions: []
+__enough_move_space: false
+__extra_config_value_after: ''
+__extra_config_value_found_after: false
+__extra_config_value_before: ''
+__extra_config_value_found_before: false
+__filesystems_to_grow: []
+__find_scsi_info: []
+__found_controller_bus_number: ''
+__found_controller_type: ''
+__found_unit_number: ''
+__grow_boot_disk: false
+__joined_disk_name: ''
+__layout_is_good: false
+__new_secondary_vg_disk: ''
+__preliminary_vg_name: ''
+__primary_vg_device: ''
+__primary_vg_name: ''
+__primary_vg_last_part_on_boot_disk: ''
+__primary_vg_last_part_num_on_boot_disk: ''
+__primary_vg_other_disk: false
+__primary_vg_other_pvs: []
+__primary_vg_pv_other_size: 0
+__primary_vg_pv_size: 0
+__primary_vgs_pvs: []
+__root_calculated_new_disk_size: 0
+__root_disk_last_partition: ''
+__root_disk: sda
+__secondary_vg_exists: false
+__secondary_vg_pv_size: []
+__secondary_vgs: []
+__secondary_vgs_pvs: []
+__secondary_vg_disk_size_needed: 0
+__secondary_disk_grow_percentage: 1.10
+__storage_is_a_mess: false
+__target_disk: ''
+__target_disk_to_remove: ''
+__vm_datacenter: ''
+__vm_controller_and_unit_found: false
+__vm_guest_info_after: ''
+__vm_guest_info_before: ''
+__vm_rest_controller_info: ''
+__vm_disk_controller_key: ''
+__vm_disk_controller_number: ''
+__vm_disk_controller_type: ''
+__vm_disk_controller_unit_number: 0
+__vm_disk_datastore: ''
+__vm_disk_provisioning_type: thin
+__vm_disk_scsi_controller: ''
+__vm_moid: ''
+__vm_name: ''
+__vm_remove_disk_list: []
+__vm_scsi_controller: {}
+__vm_scsi_max_controller_id: 3
+__vm_scsi_max_devices: 15
+__vm_snapshot_count: ''
+__vm_guest_snapshot_state: remove_all
+__vm_uuid: ''
+
+role_lnx_modify_disk__debug_mode: false
+role_lnx_modify_disk__root_disk_size_gb_exact_size: 0
+# Read this like the following: 1 x percentage to grow the disk by 1.some_percentage.
+# For Example: 1.30
+# So if calculation say the second disk is to be 100 BG, then multipling it by a
+# grow percentage of 1.20 makes the new disk is created with 120 GB.
+role_lnx_modify_disk__secondary_disk_grow_percentage: 1.10
+role_lnx_modify_disk__filesystems_to_grow: []
+role_lnx_modify_disk__grow_gb_root_filesystem: 2
+role_lnx_modify_disk__grow_gb_usr_filesystem: 2
+role_lnx_modify_disk__grow_gb_var_filesystem: 2
+role_lnx_modify_disk__grow_gb_tmp_filesystem: 0
+role_lnx_modify_disk__grow_gb_home_filesystem: 0
+role_lnx_modify_disk__grow_gb_opt_filesystem: 0
+
+role_vmware_guest_find__vm_found: false
+role_vmware_guest_find__hostname: "{{ inventory_hostname }}"
+
+role_vmware_guest_find__cluster: ''
+role_vmware_guest_find__datacenter: ''
+role_vmware_guest_find__folders: ''
+role_vmware_guest_find__guest_name: ''
+role_vmware_guest_find__moid: ''
+role_vmware_guest_find__uuid: ''
+role_vmware_guest_find__vm_name: ''
+role_vmware_guest_find__advanced_settings: ''
+
+...

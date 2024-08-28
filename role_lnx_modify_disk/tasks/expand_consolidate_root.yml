@@ -1,0 +1,132 @@
+---
+# tasks file for role_lnx_modify_disk - expand_consolidate_root.yml
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    var: __root_new_disk_size
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Turn new size value into a integer
+  ansible.builtin.set_fact:
+    __root_new_disk_size: "{{ __root_new_disk_size | float | round | int }}"
+    __boot_disk_full_size: "{{ __boot_disk_full_size | float | round | int }}"
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__root_new_disk_size: ..... {{ __root_new_disk_size }}"
+      - "__boot_disk_full_size: .... {{ __boot_disk_full_size }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Add extra disk for moves
+  ansible.builtin.include_tasks:
+    file: vmware_vm_expand_disk.yml
+  when: __root_new_disk_size | int > __boot_disk_full_size | int
+  vars:
+    __vg_disk_size_needed: "{{ __root_new_disk_size }}"
+    __vm_disk_controller_number: "{{ __vm_scsi_controller.__controller_number }}"
+    __vm_disk_controller_unit_number: 0
+
+- name: expand_consolidate_root | Extend the last root partition
+  ansible.builtin.include_tasks:
+    file: extend_root_partition.yml
+  vars:
+    __root_disk: "{{ __boot_long_disk_device }}"
+
+- name: expand_consolidate_root | Move all of the root logical volumes to the primary disk
+  ansible.builtin.command: pvmove {{ item }} {{ __primary_vg_last_part_on_boot_disk }}
+  loop: "{{ __primary_vg_other_pvs }}"
+  when: item not in __empty_partitions
+  register: __root_pvmove_results
+  changed_when: true
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    var: __root_pvmove_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Move the physical volumes away from primary volume group
+  ansible.builtin.command: vgreduce {{ __primary_vg_name }} {{ item }}
+  loop: "{{ __primary_vg_other_pvs }}"
+  register: __root_vgreduce_results
+  changed_when: __root_vgreduce_results.rc in [0,5]
+#  failed_when: __root_vgreduce_results.rc not in [0,5]
+#  ignore_errors: true
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    var: __root_vgreduce_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Move the physical volumes away from primary volume group
+  ansible.builtin.command: pvremove {{ item }}
+  loop: "{{ __primary_vg_other_pvs }}"
+  when: item in __primary_vgs_pvs
+  register: __root_pvremove_results
+  changed_when: true
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    var: __root_pvremove_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Remove partition
+  community.general.parted:
+    device: "/dev/{{ item.split('/')[2][:3] }}"
+    number: "{{ item.split('/')[2][3:] }}"
+    state: absent
+  loop: "{{ __primary_vg_other_pvs }}"
+  register: __root_parted_results
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    var: __root_parted_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Setup for removing the empty disk
+  ansible.builtin.set_fact:
+    __vm_remove_disk_list: "{{ __vm_remove_disk_list + [item.split('/')[2][:3]] }}"
+  loop: "{{ __primary_vg_other_pvs }}"
+
+- name: expand_consolidate_root | Show debug information
+  ansible.builtin.debug:
+    var: __vm_remove_disk_list
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Show lsscsi (before removal)
+  ansible.builtin.command: lsscsi
+  register: __lsscsi_before
+  changed_when: false
+
+- name: expand_consolidate_root | Show variables
+  ansible.builtin.debug:
+    var: __lsscsi_before.stdout_lines
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: expand_consolidate_root | Remove empty disks
+  ansible.builtin.include_tasks:
+    file: vmware_vm_remove_disk.yml
+  loop: "{{ __vm_remove_disk_list }}"
+  vars:
+    __target_disk_to_remove: "{{ item }}"
+
+- name: expand_consolidate_root | Show lsscsi (after removal)
+  ansible.builtin.command: lsscsi
+  register: __lsscsi_after
+  changed_when: false
+
+- name: expand_consolidate_root | Show variables
+  ansible.builtin.debug:
+    var: __lsscsi_after.stdout_lines
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: expand_consolidate_root | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 30
+...

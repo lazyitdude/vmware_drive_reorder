@@ -1,0 +1,75 @@
+---
+# tasks file for role_lnx_modify_disk - vgextend_volume_group.yml
+
+- name: vgextend_volume_group | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__physical_disk: .... {{ __physical_disk }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vgextend_volume_group | Clean up variables when existing partition (block)
+  when: '"/" in __physical_disk'
+  block:
+
+    - name: vgextend_volume_group | Clean up variables when existing partition (get physical_disk)
+      ansible.builtin.set_fact:
+        __mod_physical_disk: "/dev/{{ __physical_disk.split('/')[2][:3] }}"
+
+    - name: vgextend_volume_group | Show debug information
+      ansible.builtin.debug:
+        msg:
+          - "__mod_physical_disk: .... {{ __mod_physical_disk }}"
+#      when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vgextend_volume_group | Clean up variables when existing partition (block)
+  when: '"/" not in __physical_disk'
+  block:
+
+    - name: vgextend_volume_group | Clean up variables when existing partition (get physical_disk)
+      ansible.builtin.set_fact:
+        __mod_physical_disk: "/dev/{{ __physical_disk }}"
+
+    - name: vgextend_volume_group | Show debug information
+      ansible.builtin.debug:
+        msg:
+          - "__mod_physical_disk: .... {{ __mod_physical_disk }}"
+#      when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vgextend_volume_group | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "full path: ............. {{ __mod_physical_disk }}{{ __partition_number }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vgextend_volume_group | Format partition and extend the volume group
+  ansible.builtin.command: vgextend {{ __volume_group }} {{ __mod_physical_disk }}{{ __partition_number }}
+  register: __vgextend_results
+  changed_when: __pvcreate_results.rc in [0]
+#  failed_when: __pvcreate_results.rc not in [0]
+
+- name: vgextend_volume_group | Show debug information
+  ansible.builtin.debug:
+    var: __vgextend_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vgextend_volume_group | Set move disk for secondary volume group on primary volume group
+  ansible.builtin.set_fact:
+    __new_secondary_vg_disk: "{{ __mod_physical_disk }}{{ __partition_number }}"
+  when: __vgextend_results.rc in [0]
+
+- name: vgextend_volume_group | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__vgextend_results: ............. {{ __vgextend_results }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vgextend_volume_group | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 10
+...

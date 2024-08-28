@@ -1,0 +1,67 @@
+---
+# tasks file for role_vmware_guest_find -- main.yml
+
+- name: Gather all registered virtual machines
+  vmware.vmware_rest.vcenter_vm_info:
+    vcenter_hostname: '{{ vcenter_hostname }}'
+    vcenter_username: '{{ vcenter_username }}'
+    vcenter_password: '{{ vcenter_password }}'
+    vcenter_validate_certs: "{{ vcenter_certificates }}"
+    filter_names:
+      - "{{ role_vmware_guest_find__hostname }}"
+  register: __search_result
+  delegate_to: localhost
+
+- name: Gather facts for specific VM
+  community.vmware.vmware_vm_info:
+    hostname: '{{ vcenter_hostname }}'
+    username: '{{ vcenter_username }}'
+    password: '{{ vcenter_password }}'
+    validate_certs: "{{ vcenter_certificates }}"
+    vm_name: "{{ __search_result.value[0].name }}"
+  register: __vm_info
+  delegate_to: localhost
+
+- name: Set found
+  ansible.builtin.set_fact:
+    __vm_found: true
+    role_vmware_guest_find__vm_found: true
+    cacheable: true
+  when: __search_result.value[0].name | length > 0
+  delegate_to: localhost
+
+- name: set variables for everywhere else (aka normalize)
+  ansible.builtin.set_fact:
+    __vm_name: "{{ __vm_info.virtual_machines | map(attribute='guest_name') | list | first }}"
+    __vm_moid: "{{ __vm_info.virtual_machines | map(attribute='moid') | list | first }}"
+    __vm_uuid: "{{ __vm_info.virtual_machines | map(attribute='uuid') | list | first }}"
+    __vm_datacenter: "{{ __vm_info.virtual_machines | map(attribute='datacenter') | list | first }}"
+    __vm_folders: "{{ __vm_info.virtual_machines | map(attribute='folder') | list | first }}"
+    __vm_cluster: "{{ __vm_info.virtual_machines | map(attribute='cluster') | list | first }}"
+    cacheable: true
+  when: __vm_found | bool
+  delegate_to: localhost
+
+- name: Set return variables for usabiity in addition to the ones above
+  ansible.builtin.set_fact:
+    role_vmware_guest_find__guest_name: "{{ __vm_name }}"
+    role_vmware_guest_find__vm_name: "{{ __vm_name }}"
+    role_vmware_guest_find__moid: "{{ __vm_moid }}"
+    role_vmware_guest_find__uuid: "{{ __vm_uuid }}"
+    role_vmware_guest_find__datacenter: "{{ __vm_datacenter }}"
+    role_vmware_guest_find__folders: "{{ __vm_folders }}"
+    role_vmware_guest_find__cluster: "{{ __vm_cluster }}"
+    cacheable: true
+  when: __vm_found | bool
+  delegate_to: localhost
+
+- name: Assert that it found the server
+  ansible.builtin.assert:
+    that:
+      - __vm_found
+      - __vm_folders | length > 0
+    success_msg: "Server {{ role_vmware_guest_find__hostname }} found"
+    fail_msg: "Server {{ role_vmware_guest_find__hostname }} NOT found"
+  delegate_to: localhost
+
+...

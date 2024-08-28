@@ -1,0 +1,43 @@
+---
+# tasks file for role_lnx_modify_disk - disk_findings.yml
+
+- name: get_empty_disks | Get system facts
+  ansible.builtin.include_tasks:
+    file: get_system_facts.yml
+
+- name: get_empty_disks | Get the list of empty disks
+  ansible.builtin.set_fact:
+    __empty_disks: "{{ __empty_disks | default([]) + [item.key] }}"
+  loop: "{{ ansible_devices | dict2items }}"
+  when: item.key is match('sd') and
+        item.value.partitions | length == 0
+
+- name: get_empty_disks | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__empty_disks.0: .... {{ __empty_disks.0 }}"
+  when: __empty_disks | length > 0 and
+        __empty_disks.0 is defined and
+        role_lnx_modify_disk__debug_mode | bool
+
+- name: get_empty_disks | Are there empty disk available
+  ansible.builtin.set_fact:
+    __empty_disks_available: true
+  when: __empty_disks | length > 0
+
+- name: get_empty_disks | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__empty_disks_available: .... {{ __empty_disks_available }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: get_empty_disks | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 30
+...

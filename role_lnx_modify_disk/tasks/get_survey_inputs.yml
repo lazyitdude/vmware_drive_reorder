@@ -1,0 +1,60 @@
+---
+# tasks file for role_lnx_modify_disk - get_survey_inputs.yml
+
+- name: get_survey_inputs | Increase disk size to exact size
+  ansible.builtin.set_fact:
+    __new_root_disk_size: "{{ role_lnx_modify_disk__root_disk_size_gb_exact_size | int }}"
+  when: role_lnx_modify_disk__root_disk_size_gb_exact_size | int > 0
+
+- name: get_survey_inputs | Show debug information
+  ansible.builtin.debug:
+    var: __new_root_disk_size
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: get_survey_inputs | Capture percentage to grow secondary volume group disks (with % sign)
+  ansible.builtin.set_fact:
+    __secondary_disk_grow_percentage: "{{ role_lnx_modify_disk__secondary_disk_grow_percentage.split('%')[0] | float /
+                                          100.00 | float + 1.00 | float }}"
+  when: '"%" in role_lnx_modify_disk__secondary_disk_grow_percentage'
+
+- name: get_survey_inputs | Capture percentage to grow secondary volume group disks (without % sign)
+  ansible.builtin.set_fact:
+    __secondary_disk_grow_percentage: "{{ role_lnx_modify_disk__secondary_disk_grow_percentage | float /
+                                          100.00 | float + 1.00 | float }}"
+  when: not '"%" in role_lnx_modify_disk__secondary_disk_grow_percentage'
+
+- name: get_survey_inputs | Show debug information
+  ansible.builtin.debug:
+    msg:
+      - "__secondary_disk_grow_percentage: .... {{ __secondary_disk_grow_percentage }}"
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: Determine if filesystem exists on the host
+  ansible.builtin.set_fact:
+    __filesystems_to_grow:
+      "{{ __filesystems_to_grow | default([]) +
+          [{ 'name': fs.name,
+             'vg': (ansible_mounts | selectattr('mount', 'equalto', fs.name) | list).0.device.split('/')[-1].split('-')[0],
+             'lv': (ansible_mounts | selectattr('mount', 'equalto', fs.name) | list).0.device.split('/')[-1].split('-')[1],
+             'size': fs.size }] }}"
+  loop:
+    - { name: '/', size: "{{ role_lnx_modify_disk__grow_gb_root_filesystem }}" }
+    - { name: '/usr', size: "{{ role_lnx_modify_disk__grow_gb_usr_filesystem }}" }
+    - { name: '/var', size: "{{ role_lnx_modify_disk__grow_gb_var_filesystem }}" }
+    - { name: '/tmp', size: "{{ role_lnx_modify_disk__grow_gb_tmp_filesystem }}" }
+    - { name: '/opt', size: "{{ role_lnx_modify_disk__grow_gb_opt_filesystem }}" }
+    - { name: '/home', size: "{{ role_lnx_modify_disk__grow_gb_home_filesystem }}" }
+  loop_control:
+    loop_var: fs
+  when: "fs.name in (ansible_mounts | map(attribute='mount') | list)"
+
+- name: Display
+  ansible.builtin.debug:
+    msg:
+      - "name: ....... {{ item.name }}"
+      - "vg: ......... {{ item.vg }}"
+      - "lv: ......... {{ item.lv }}"
+      - "size: ....... {{ item.size }}"
+  loop: "{{ __filesystems_to_grow }}"
+
+...

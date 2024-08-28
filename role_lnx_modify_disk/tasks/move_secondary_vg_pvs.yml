@@ -1,0 +1,33 @@
+---
+# tasks file for role_lnx_modify_disk - move_secondary_vg_pvs.yml
+
+- name: move_secondary_vg_pvs | Eliminate empty partition from move list
+  ansible.builtin.set_fact:
+    __mod_move_list: "{{ __mod_move_list | default([]) + [item] }}"
+  loop: "{{ __move_list }}"
+  when: item not in __empty_partitions
+
+- name: move_secondary_vg_pvs | Move the physical volumes away from primary volume group
+  ansible.builtin.command: pvmove {{ item }} {{ __move_to_disk }}
+  loop: "{{ __mod_move_list }}"
+  register: __pvmove_results
+  changed_when: __pvmove_results.rc in [0,5]
+#  failed_when: __pvmove_results.rc not in [0,5]
+#  ignore_errors: true
+
+- name: move_secondary_vg_pvs | Show debug information
+  ansible.builtin.debug:
+    var: __pvmove_results
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: move_secondary_vg_pvs | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 20
+
+...

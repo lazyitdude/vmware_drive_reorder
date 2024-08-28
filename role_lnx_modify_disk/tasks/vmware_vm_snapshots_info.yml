@@ -1,0 +1,40 @@
+---
+# tasks file for role_lnx_modify_disk -- vmware_vm_snapshots_info.yml
+
+- name: vmware_vm_snapshots_info | Get snapshot information for VM guest
+  community.vmware.vmware_guest_snapshot_info:
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    validate_certs: "{{ vcenter_certificates }}"
+    datacenter: "{{ __vm_datacenter }}"
+    moid: "{{ __vm_moid }}"
+  register: __vm_guest_snapshot_info
+  delegate_to: localhost
+  throttle: 1
+
+- name: vmware_vm_snapshots_info | Show debug information
+  ansible.builtin.debug:
+    var: __vm_guest_snapshot_info
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+- name: vmware_vm_snapshots_info | Set a variable to count of snapshots for VM guest
+  ansible.builtin.set_fact:
+    __vm_snapshot_count: "{{ __vm_guest_snapshot_info.guest_snapshots.current_snapshot | length }}"
+  when: __vm_guest_snapshot_info.guest_snapshots.current_snapshot is defined
+
+- name: vmware_vm_snapshots_info | Show debug information
+  ansible.builtin.debug:
+    var: __vm_snapshot_count
+#  when: role_lnx_modify_disk__debug_mode | bool
+
+# Sending this to ESP as configure, with role_esp_record_time__minsaved
+# set to approximately time a system admin would take to perform this task
+- name: vmware_vm_snapshots_info | Send record time to ESP
+  ansible.builtin.include_role:
+    name: centerpoint.general.role_esp_record_time
+  when: role_esp_record_time__enabled | bool
+  vars:
+    role_esp_record_time__flag: "configure"
+    role_esp_record_time__minsaved: 5
+...
